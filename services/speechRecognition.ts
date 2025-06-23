@@ -122,7 +122,7 @@ export class SpeechRecognitionService {
           
           switch (event.error) {
             case 'no-speech':
-              errorMessage = 'No speech detected. Please speak clearly and try again.';
+              errorMessage = 'We couldn\'t detect any speech. Please ensure your microphone is working and speak clearly.';
               break;
             case 'audio-capture':
               errorMessage = 'Microphone not available. Please check your microphone settings.';
@@ -156,9 +156,9 @@ export class SpeechRecognitionService {
             let errorMessage;
             
             if (recordingDuration < this.minRecordingTime) {
-              errorMessage = 'Recording too short. Please speak for at least 0.5 seconds.';
+              errorMessage = 'It seems the recording was too short. Please speak for at least 0.5 seconds.';
             } else {
-              errorMessage = 'No speech detected. Please try speaking more clearly.';
+              errorMessage = 'We couldn\'t detect any speech. Please ensure your microphone is working and speak clearly.';
             }
             
             handleError(errorMessage, 'no-speech');
