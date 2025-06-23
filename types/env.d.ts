@@ -1,9 +1,10 @@
 declare global {
   namespace NodeJS {
     interface ProcessEnv {
-      EXPO_PUBLIC_GOOGLE_CLOUD_API_KEY: string;
-      EXPO_PUBLIC_GOOGLE_CLOUD_PROJECT_ID: string;
-      EXPO_PUBLIC_SPEECH_TO_TEXT_ENDPOINT: string;
+      EXPO_PUBLIC_BYTEDANCE_API_KEY: string;
+      EXPO_PUBLIC_BYTEDANCE_API_ENDPOINT: string;
+      EXPO_PUBLIC_SEED_ASR_APP_ID: string;
+      EXPO_PUBLIC_SEED_ASR_TOKEN: string;
     }
   }
 }
