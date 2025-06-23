@@ -161,7 +161,7 @@ export class SpeechRecognitionService {
               errorMessage = 'We couldn\'t detect any speech. Please ensure your microphone is working and speak clearly.';
             }
             
-            handleError(errorMessage, 'no-speech');
+            handleError(errorMessage, errorMessage);
           }
         };
 
