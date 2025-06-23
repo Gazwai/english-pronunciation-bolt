@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { User, BookOpen, ChartBar as BarChart3, Settings } from 'lucide-react-native';
+import { MessageCircle, Sparkles, Settings, Heart } from 'lucide-react-native';
 
 export default function TabLayout() {
   return (
@@ -14,37 +14,37 @@ export default function TabLayout() {
           paddingTop: 8,
           height: 70,
         },
-        tabBarActiveTintColor: '#3B82F6',
+        tabBarActiveTintColor: '#FF6B9D',
         tabBarInactiveTintColor: '#64748B',
         tabBarLabelStyle: {
-          fontFamily: 'Inter-SemiBold',
+          fontFamily: 'Poppins-SemiBold',
           fontSize: 12,
         },
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Practice',
+          title: 'Chat',
           tabBarIcon: ({ size, color }) => (
-            <User size={size} color={color} />
+            <MessageCircle size={size} color={color} />
           ),
         }}
       />
       <Tabs.Screen
-        name="teacher"
+        name="inspiration"
         options={{
-          title: 'Teacher',
+          title: 'Inspiration',
           tabBarIcon: ({ size, color }) => (
-            <BookOpen size={size} color={color} />
+            <Sparkles size={size} color={color} />
           ),
         }}
       />
       <Tabs.Screen
-        name="progress"
+        name="wellness"
         options={{
-          title: 'Progress',
+          title: 'Wellness',
           tabBarIcon: ({ size, color }) => (
-            <BarChart3 size={size} color={color} />
+            <Heart size={size} color={color} />
           ),
         }}
       />
