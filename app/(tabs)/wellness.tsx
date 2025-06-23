@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Heart, Smile, Moon, Coffee, Flower, CheckCircle, RotateCcw } from 'lucide-react-native';
+import { Heart, Smile, Moon, Coffee, Flower, CircleCheck as CheckCircle, RotateCcw } from 'lucide-react-native';
 
 interface WellnessActivity {
   id: string;

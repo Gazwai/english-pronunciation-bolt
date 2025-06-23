@@ -2,18 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { 
-  Settings as SettingsIcon, 
-  User, 
-  Bell, 
-  Palette, 
-  Heart, 
-  Info, 
-  MessageCircle,
-  Shield,
-  HelpCircle,
-  Star
-} from 'lucide-react-native';
+import { Settings as SettingsIcon, User, Bell, Palette, Heart, Info, MessageCircle, Shield, CircleHelp as HelpCircle, Star } from 'lucide-react-native';
 
 export default function SettingsScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
