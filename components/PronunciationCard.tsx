@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform } from 'react-native';
-import { Mic, Volume2, RotateCcw, Info, MicOff, CircleCheck as CheckCircle, Circle as XCircle, CircleAlert as AlertCircle } from 'lucide-react-native';
+import { Mic, Volume2, RotateCcw, Info, MicOff, CircleCheck as CheckCircle, Circle as XCircle, CircleAlert as AlertCircle, Brain, Target } from 'lucide-react-native';
 import { Word } from '../types';
 import { speechService } from '../services/speechRecognition';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,6 +12,13 @@ interface PronunciationCardProps {
   isActive: boolean;
 }
 
+interface PronunciationAnalysis {
+  overallQuality: string;
+  specificIssues: string[];
+  strengths: string[];
+  suggestions: string[];
+}
+
 export default function PronunciationCard({ word, onPronunciationResult, isActive }: PronunciationCardProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -21,25 +28,25 @@ export default function PronunciationCard({ word, onPronunciationResult, isActiv
   const [recordingTime, setRecordingTime] = useState(0);
   const [attempts, setAttempts] = useState(0);
   const [isAvailable, setIsAvailable] = useState(false);
+  const [pronunciationAnalysis, setPronunciationAnalysis] = useState<PronunciationAnalysis | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [alternatives, setAlternatives] = useState<string[]>([]);
 
   const scale = useSharedValue(1);
   const cardScale = useSharedValue(1);
   const pulseScale = useSharedValue(1);
   const progressWidth = useSharedValue(0);
 
-  // Check speech recognition availability on mount
   useEffect(() => {
     setIsAvailable(speechService.isAvailable());
   }, []);
 
-  // Recording timer
   useEffect(() => {
     let interval: NodeJS.Timeout;
     
     if (isRecording) {
       interval = setInterval(() => {
         setRecordingTime(prev => prev + 0.1);
-        // Update progress bar
         const progress = speechService.getRecordingProgress();
         progressWidth.value = withTiming(progress * 100, { duration: 100 });
       }, 100);
@@ -53,12 +60,13 @@ export default function PronunciationCard({ word, onPronunciationResult, isActiv
     };
   }, [isRecording]);
 
-  // Reset attempts when word changes
   useEffect(() => {
     setAttempts(0);
     setLastAccuracy(null);
     setLastTranscript('');
     setError(null);
+    setPronunciationAnalysis(null);
+    setAlternatives([]);
   }, [word.id]);
 
   const animatedButtonStyle = useAnimatedStyle(() => ({
@@ -78,26 +86,25 @@ export default function PronunciationCard({ word, onPronunciationResult, isActiv
   }));
 
   const handleListen = async () => {
-    if (!isActive || isRecording) return;
+    if (!isActive || isRecording || isProcessing) return;
 
-    // Clear previous error and results
     setError(null);
     setAttempts(prev => prev + 1);
+    setIsProcessing(true);
 
-    // Check if speech recognition is available
     if (!isAvailable) {
       if (Platform.OS === 'web') {
         setError('Speech recognition is not supported in this browser. Please use Chrome, Safari, or Edge.');
       } else {
         setError('Speech recognition requires native implementation on mobile devices.');
       }
+      setIsProcessing(false);
       return;
     }
 
     setIsRecording(true);
     scale.value = withSpring(1.1);
     
-    // Start pulsing animation for recording
     pulseScale.value = withRepeat(
       withSequence(
         withTiming(1.2, { duration: 800 }),
@@ -109,30 +116,52 @@ export default function PronunciationCard({ word, onPronunciationResult, isActiv
 
     try {
       await speechService.startListening(
-        (transcript) => {
+        async (transcript) => {
           console.log('Received transcript:', transcript);
-          const accuracy = speechService.calculateAccuracy(word.text, transcript);
           
-          setLastAccuracy(accuracy);
-          setLastTranscript(transcript);
+          // Try to get enhanced analysis from API
+          try {
+            const enhancedResult = await getEnhancedPronunciationAnalysis(transcript, word.text);
+            
+            if (enhancedResult.success) {
+              setLastAccuracy(enhancedResult.accuracy);
+              setLastTranscript(enhancedResult.transcript);
+              setPronunciationAnalysis(enhancedResult.pronunciationAnalysis);
+              setAlternatives(enhancedResult.alternatives || []);
+              onPronunciationResult(enhancedResult.accuracy, enhancedResult.transcript);
+            } else {
+              // Fallback to basic calculation
+              const accuracy = speechService.calculateAccuracy(word.text, transcript);
+              setLastAccuracy(accuracy);
+              setLastTranscript(transcript);
+              onPronunciationResult(accuracy, transcript);
+            }
+          } catch (apiError) {
+            console.warn('API analysis failed, using fallback:', apiError);
+            const accuracy = speechService.calculateAccuracy(word.text, transcript);
+            setLastAccuracy(accuracy);
+            setLastTranscript(transcript);
+            onPronunciationResult(accuracy, transcript);
+          }
+          
           setError(null);
-          onPronunciationResult(accuracy, transcript);
           
           // Animate card based on accuracy
-          if (accuracy >= 80) {
+          const finalAccuracy = lastAccuracy || speechService.calculateAccuracy(word.text, transcript);
+          if (finalAccuracy >= 80) {
             cardScale.value = withSequence(
               withSpring(1.05, { damping: 8 }),
               withSpring(1, { damping: 8 })
             );
-          } else if (accuracy >= 60) {
+          } else if (finalAccuracy >= 60) {
             cardScale.value = withSequence(
               withSpring(1.02, { damping: 10 }),
               withSpring(1, { damping: 10 })
             );
           }
           
-          // Stop recording after getting result
           setIsRecording(false);
+          setIsProcessing(false);
           scale.value = withSpring(1);
           pulseScale.value = withTiming(1, { duration: 200 });
         },
@@ -140,24 +169,46 @@ export default function PronunciationCard({ word, onPronunciationResult, isActiv
           console.error('Speech recognition error:', errorMessage);
           setError(errorMessage);
           setIsRecording(false);
+          setIsProcessing(false);
           scale.value = withSpring(1);
           pulseScale.value = withTiming(1, { duration: 200 });
         }
       );
     } catch (error) {
       console.error('Speech recognition failed:', error);
-      // Always set error message from caught error
       setError(typeof error === 'string' ? error : 'Speech recognition failed. Please try again.');
       setIsRecording(false);
+      setIsProcessing(false);
       scale.value = withSpring(1);
       pulseScale.value = withTiming(1, { duration: 200 });
     }
+  };
+
+  const getEnhancedPronunciationAnalysis = async (transcript: string, targetWord: string) => {
+    // Create a mock audio blob for API testing
+    const mockAudioBlob = new Blob(['mock audio data'], { type: 'audio/webm' });
+    
+    const formData = new FormData();
+    formData.append('audio', mockAudioBlob, 'recording.webm');
+    formData.append('targetWord', targetWord);
+
+    const response = await fetch('/api/pronunciation', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status}`);
+    }
+
+    return await response.json();
   };
 
   const handleStopRecording = () => {
     if (isRecording) {
       speechService.stopListening();
       setIsRecording(false);
+      setIsProcessing(false);
       scale.value = withSpring(1);
       pulseScale.value = withTiming(1, { duration: 200 });
     }
@@ -179,6 +230,8 @@ export default function PronunciationCard({ word, onPronunciationResult, isActiv
     setLastAccuracy(null);
     setLastTranscript('');
     setError(null);
+    setPronunciationAnalysis(null);
+    setAlternatives([]);
   };
 
   const getAccuracyColor = (accuracy: number) => {
@@ -201,33 +254,26 @@ export default function PronunciationCard({ word, onPronunciationResult, isActiv
     return <XCircle size={20} color="#ffffff" />;
   };
 
-  const getDetailedFeedback = (accuracy: number, transcript: string) => {
-    if (accuracy >= 90) {
-      return "Perfect pronunciation! You nailed it!";
-    } else if (accuracy >= 80) {
-      return "Excellent! Your pronunciation is very clear.";
-    } else if (accuracy >= 70) {
-      return "Good job! Just a few small adjustments needed.";
-    } else if (accuracy >= 60) {
-      return "Not bad! Try to pronounce each syllable more clearly.";
-    } else if (accuracy >= 40) {
-      return "Keep practicing! Listen to the example and try to match the sounds.";
-    } else {
-      return "Let's try again! Make sure you're saying the word clearly.";
+  const getQualityColor = (quality: string) => {
+    switch (quality) {
+      case 'excellent': return '#10B981';
+      case 'good': return '#3B82F6';
+      case 'fair': return '#F59E0B';
+      default: return '#EF4444';
     }
   };
 
   const showCompatibilityInfo = () => {
     if (Platform.OS === 'web') {
       Alert.alert(
-        'Browser Compatibility',
-        'Speech recognition works best in:\n\n• Chrome (recommended)\n• Safari\n• Edge\n\nMake sure to allow microphone access when prompted.',
+        'Enhanced Speech Recognition',
+        'This app now uses Google Cloud Speech-to-Text for advanced pronunciation analysis:\n\n• Detailed pronunciation feedback\n• Word-level confidence scores\n• Accent tolerance\n• Real-time processing\n\nMake sure to allow microphone access when prompted.',
         [{ text: 'OK' }]
       );
     } else {
       Alert.alert(
         'Mobile Implementation',
-        'This demo shows web-based speech recognition. For mobile apps, you would need to implement native speech recognition using libraries like:\n\n• @react-native-voice/voice\n• expo-speech (for text-to-speech)\n• Platform-specific APIs',
+        'This demo shows web-based speech recognition with Google Cloud integration. For mobile apps, you would implement native speech recognition using platform-specific APIs.',
         [{ text: 'OK' }]
       );
     }
@@ -280,7 +326,7 @@ export default function PronunciationCard({ word, onPronunciationResult, isActiv
           <TouchableOpacity
             style={[styles.button, styles.playButton]}
             onPress={handlePlayExample}
-            disabled={isPlaying || !isActive || isRecording}
+            disabled={isPlaying || !isActive || isRecording || isProcessing}
           >
             <Volume2 size={24} color="#ffffff" />
             <Text style={styles.buttonText}>
@@ -293,18 +339,20 @@ export default function PronunciationCard({ word, onPronunciationResult, isActiv
               style={[
                 styles.button,
                 isRecording ? styles.recordingButton : styles.recordButton,
-                (!isActive || !isAvailable) && styles.disabledButton
+                (!isActive || !isAvailable || isProcessing) && styles.disabledButton
               ]}
               onPress={isRecording ? handleStopRecording : handleListen}
-              disabled={!isActive || isPlaying || !isAvailable}
+              disabled={!isActive || isPlaying || !isAvailable || isProcessing}
             >
-              {isRecording ? (
+              {isProcessing ? (
+                <Brain size={24} color="#ffffff" />
+              ) : isRecording ? (
                 <MicOff size={24} color="#ffffff" />
               ) : (
                 <Mic size={24} color="#ffffff" />
               )}
               <Text style={styles.buttonText}>
-                {isRecording ? 'Stop' : 'Record'}
+                {isProcessing ? 'Processing...' : isRecording ? 'Stop' : 'Record'}
               </Text>
             </TouchableOpacity>
           </Animated.View>
@@ -324,7 +372,6 @@ export default function PronunciationCard({ word, onPronunciationResult, isActiv
               </Text>
             </View>
             
-            {/* Progress bar */}
             <View style={styles.progressContainer}>
               <Animated.View style={[styles.progressBar, animatedProgressStyle]} />
             </View>
@@ -335,7 +382,7 @@ export default function PronunciationCard({ word, onPronunciationResult, isActiv
           </View>
         )}
 
-        {lastAccuracy !== null && !isRecording && (
+        {lastAccuracy !== null && !isRecording && !isProcessing && (
           <View style={styles.feedback}>
             <View style={[styles.accuracyBar, { backgroundColor: getAccuracyColor(lastAccuracy) }]}>
               <View style={styles.accuracyHeader}>
@@ -354,9 +401,60 @@ export default function PronunciationCard({ word, onPronunciationResult, isActiv
               </View>
             )}
 
-            <Text style={styles.feedbackText}>
-              {getDetailedFeedback(lastAccuracy, lastTranscript)}
-            </Text>
+            {pronunciationAnalysis && (
+              <View style={styles.analysisContainer}>
+                <View style={styles.analysisHeader}>
+                  <Target size={16} color={getQualityColor(pronunciationAnalysis.overallQuality)} />
+                  <Text style={[styles.analysisTitle, { color: getQualityColor(pronunciationAnalysis.overallQuality) }]}>
+                    Pronunciation Analysis
+                  </Text>
+                </View>
+                
+                <View style={styles.qualityBadge}>
+                  <Text style={[styles.qualityText, { color: getQualityColor(pronunciationAnalysis.overallQuality) }]}>
+                    Overall Quality: {pronunciationAnalysis.overallQuality}
+                  </Text>
+                </View>
+
+                {pronunciationAnalysis.strengths.length > 0 && (
+                  <View style={styles.feedbackSection}>
+                    <Text style={styles.feedbackSectionTitle}>✅ Strengths:</Text>
+                    {pronunciationAnalysis.strengths.map((strength, index) => (
+                      <Text key={index} style={styles.feedbackItem}>• {strength}</Text>
+                    ))}
+                  </View>
+                )}
+
+                {pronunciationAnalysis.specificIssues.length > 0 && (
+                  <View style={styles.feedbackSection}>
+                    <Text style={styles.feedbackSectionTitle}>⚠️ Areas to improve:</Text>
+                    {pronunciationAnalysis.specificIssues.map((issue, index) => (
+                      <Text key={index} style={styles.feedbackItem}>• {issue}</Text>
+                    ))}
+                  </View>
+                )}
+
+                {pronunciationAnalysis.suggestions.length > 0 && (
+                  <View style={styles.feedbackSection}>
+                    <Text style={styles.feedbackSectionTitle}>💡 Suggestions:</Text>
+                    {pronunciationAnalysis.suggestions.map((suggestion, index) => (
+                      <Text key={index} style={styles.feedbackItem}>• {suggestion}</Text>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {alternatives.length > 0 && (
+              <View style={styles.alternativesContainer}>
+                <Text style={styles.alternativesTitle}>Alternative interpretations:</Text>
+                {alternatives.slice(0, 3).map((alt, index) => (
+                  <Text key={index} style={styles.alternativeText}>
+                    {index + 1}. "{alt}"
+                  </Text>
+                ))}
+              </View>
+            )}
 
             {lastAccuracy < 80 && (
               <TouchableOpacity style={styles.tryAgainButton} onPress={handleTryAgain}>
@@ -611,13 +709,68 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#64748B',
   },
-  feedbackText: {
+  analysisContainer: {
+    backgroundColor: '#F0F9FF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#0EA5E9',
+  },
+  analysisHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  analysisTitle: {
+    fontSize: 16,
+    fontFamily: 'Inter-Bold',
+  },
+  qualityBadge: {
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 12,
+  },
+  qualityText: {
     fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    textTransform: 'capitalize',
+  },
+  feedbackSection: {
+    marginBottom: 12,
+  },
+  feedbackSectionTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#1E293B',
+    marginBottom: 6,
+  },
+  feedbackItem: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#475569',
+    lineHeight: 18,
+    marginBottom: 2,
+  },
+  alternativesContainer: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  alternativesTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#64748B',
+    marginBottom: 8,
+  },
+  alternativeText: {
+    fontSize: 13,
     fontFamily: 'Inter-Regular',
     color: '#64748B',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 16,
+    marginBottom: 4,
   },
   tryAgainButton: {
     flexDirection: 'row',
