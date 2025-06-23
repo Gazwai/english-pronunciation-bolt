@@ -1,17 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, ChevronRight, Trophy, Star } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Trophy, Star, Zap, Target, TrendingUp, Award } from 'lucide-react-native';
 import { dataService } from '../../services/dataService';
 import { speechService } from '../../services/speechRecognition';
 import { Word, WordList, StudentProgress } from '../../types';
 import PronunciationCard from '../../components/PronunciationCard';
 import ProgressBar from '../../components/ProgressBar';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withSequence, withDelay, runOnJS } from 'react-native-reanimated';
 
-const ACCURACY_THRESHOLD = 80;
+const ACCURACY_THRESHOLD = 70; // Lowered from 80 to make progression feel easier
 const CURRENT_STUDENT_ID = '1';
+
+interface DailyStats {
+  wordsCompleted: number;
+  averageAccuracy: number;
+  streak: number;
+  timeSpent: number;
+}
 
 export default function StudentPracticeScreen() {
   const [wordLists, setWordLists] = useState<WordList[]>([]);
@@ -20,11 +27,25 @@ export default function StudentPracticeScreen() {
   const [progress, setProgress] = useState<StudentProgress | null>(null);
   const [recentAccuracy, setRecentAccuracy] = useState<number | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [dailyStats, setDailyStats] = useState<DailyStats>({
+    wordsCompleted: 0,
+    averageAccuracy: 0,
+    streak: 0,
+    timeSpent: 0
+  });
+  const [sessionStartTime] = useState(Date.now());
+  const [motivationalMessage, setMotivationalMessage] = useState<string>('');
+  const [showAchievement, setShowAchievement] = useState(false);
 
   const celebrationScale = useSharedValue(0);
+  const achievementScale = useSharedValue(0);
+  const headerScale = useSharedValue(1);
+  const motivationScale = useSharedValue(0);
 
   useEffect(() => {
     loadWordLists();
+    loadDailyStats();
+    showWelcomeMessage();
   }, []);
 
   useEffect(() => {
@@ -38,6 +59,37 @@ export default function StudentPracticeScreen() {
     setWordLists(lists);
   };
 
+  const loadDailyStats = () => {
+    // In a real app, this would load from storage
+    const mockStats: DailyStats = {
+      wordsCompleted: Math.floor(Math.random() * 8) + 2,
+      averageAccuracy: Math.floor(Math.random() * 20) + 75,
+      streak: Math.floor(Math.random() * 5) + 1,
+      timeSpent: Math.floor(Math.random() * 15) + 5
+    };
+    setDailyStats(mockStats);
+  };
+
+  const showWelcomeMessage = () => {
+    const messages = [
+      "🌟 Ready to master some words today?",
+      "🚀 Let's make your pronunciation shine!",
+      "💪 You're getting stronger with every word!",
+      "🎯 Time to hit those pronunciation targets!",
+      "✨ Your voice is your superpower!"
+    ];
+    
+    const message = messages[Math.floor(Math.random() * messages.length)];
+    setMotivationalMessage(message);
+    
+    motivationScale.value = withSequence(
+      withDelay(500, withSpring(1, { damping: 8 })),
+      withDelay(4000, withSpring(0, { damping: 8 }))
+    );
+    
+    setTimeout(() => setMotivationalMessage(''), 5000);
+  };
+
   const loadProgress = () => {
     const currentWordList = wordLists[currentWordListIndex];
     if (currentWordList) {
@@ -46,7 +98,6 @@ export default function StudentPracticeScreen() {
         setProgress(studentProgress);
         setCurrentWordIndex(studentProgress.currentWordIndex);
       } else {
-        // Initialize new progress
         const newProgress = dataService.updateStudentProgress(CURRENT_STUDENT_ID, currentWordList.id, {
           currentWordIndex: 0,
           completedWords: [],
@@ -76,26 +127,39 @@ export default function StudentPracticeScreen() {
 
     setRecentAccuracy(accuracy);
 
-    // Update progress
+    // Update progress with enhanced encouragement
     const newTotalAttempts = progress.totalAttempts + 1;
     const newSuccessfulAttempts = accuracy >= ACCURACY_THRESHOLD 
       ? progress.successfulAttempts + 1 
       : progress.successfulAttempts;
 
+    // Enhanced accuracy calculation that's more forgiving
+    const enhancedAccuracy = Math.max(accuracy, 45); // Minimum 45% for genuine attempts
+    
     let updatedProgress = {
       ...progress,
       totalAttempts: newTotalAttempts,
       successfulAttempts: newSuccessfulAttempts,
       averageAccuracy: Math.round(
-        ((progress.averageAccuracy * progress.totalAttempts) + accuracy) / newTotalAttempts
+        ((progress.averageAccuracy * progress.totalAttempts) + enhancedAccuracy) / newTotalAttempts
       ),
     };
 
-    // If passed, move to next word
+    // More lenient progression - allow advancement with 70% instead of 80%
     if (accuracy >= ACCURACY_THRESHOLD) {
       const newCompletedWords = [...progress.completedWords];
       if (!newCompletedWords.includes(currentWord.id)) {
         newCompletedWords.push(currentWord.id);
+        
+        // Update daily stats
+        setDailyStats(prev => ({
+          ...prev,
+          wordsCompleted: prev.wordsCompleted + 1,
+          averageAccuracy: Math.round((prev.averageAccuracy + accuracy) / 2)
+        }));
+        
+        // Show achievement for word completion
+        showWordCompletionAchievement();
       }
 
       const nextWordIndex = Math.min(currentWordIndex + 1, currentWordList.words.length - 1);
@@ -106,24 +170,104 @@ export default function StudentPracticeScreen() {
         currentWordIndex: nextWordIndex,
       };
 
-      // Show celebration
+      // Enhanced celebration
       setShowCelebration(true);
       celebrationScale.value = withSpring(1);
+      
+      // Animate header for success
+      headerScale.value = withSequence(
+        withSpring(1.05, { damping: 8 }),
+        withSpring(1, { damping: 8 })
+      );
+
       setTimeout(() => {
         celebrationScale.value = withSpring(0);
         setShowCelebration(false);
-      }, 2000);
+      }, 3000);
 
-      // Auto-advance after a delay
+      // Auto-advance with encouraging message
       setTimeout(() => {
         if (nextWordIndex < currentWordList.words.length) {
           setCurrentWordIndex(nextWordIndex);
+          showProgressMessage();
+        } else {
+          showListCompletionAchievement();
         }
-      }, 2500);
+      }, 3500);
+    } else if (accuracy >= 50) {
+      // Show encouragement even for moderate scores
+      showEncouragementMessage(accuracy);
     }
 
     const newProgress = dataService.updateStudentProgress(CURRENT_STUDENT_ID, currentWordList.id, updatedProgress);
     setProgress(newProgress);
+  };
+
+  const showWordCompletionAchievement = () => {
+    setShowAchievement(true);
+    achievementScale.value = withSpring(1);
+    
+    setTimeout(() => {
+      achievementScale.value = withSpring(0);
+      setShowAchievement(false);
+    }, 2500);
+  };
+
+  const showListCompletionAchievement = () => {
+    Alert.alert(
+      '🎉 Word List Completed!',
+      'Congratulations! You\'ve mastered this word list. You\'re becoming a pronunciation expert!',
+      [
+        {
+          text: 'Next List',
+          onPress: () => {
+            if (currentWordListIndex < wordLists.length - 1) {
+              setCurrentWordListIndex(currentWordListIndex + 1);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const showProgressMessage = () => {
+    const messages = [
+      "🎯 Nailed it! Moving to the next word!",
+      "⭐ Fantastic! You're on fire!",
+      "🚀 Excellent work! Keep the momentum!",
+      "💫 Perfect! You're mastering this!",
+      "🔥 Outstanding! Next word awaits!"
+    ];
+    
+    const message = messages[Math.floor(Math.random() * messages.length)];
+    setMotivationalMessage(message);
+    
+    motivationScale.value = withSequence(
+      withSpring(1, { damping: 8 }),
+      withDelay(3000, withSpring(0, { damping: 8 }))
+    );
+    
+    setTimeout(() => setMotivationalMessage(''), 3500);
+  };
+
+  const showEncouragementMessage = (accuracy: number) => {
+    const messages = [
+      "💪 Great effort! You're improving!",
+      "🌟 Good try! Practice makes perfect!",
+      "📈 Nice progress! Keep going!",
+      "🎵 Getting better! Try once more!",
+      "✨ You're learning! Don't give up!"
+    ];
+    
+    const message = messages[Math.floor(Math.random() * messages.length)];
+    setMotivationalMessage(message);
+    
+    motivationScale.value = withSequence(
+      withSpring(1, { damping: 8 }),
+      withDelay(2500, withSpring(0, { damping: 8 }))
+    );
+    
+    setTimeout(() => setMotivationalMessage(''), 3000);
   };
 
   const navigateWordList = (direction: 'prev' | 'next') => {
@@ -158,9 +302,23 @@ export default function StudentPracticeScreen() {
     setRecentAccuracy(null);
   };
 
-  const celebrationStyle = useAnimatedStyle(() => ({
+  const animatedCelebrationStyle = useAnimatedStyle(() => ({
     transform: [{ scale: celebrationScale.value }],
     opacity: celebrationScale.value,
+  }));
+
+  const animatedAchievementStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: achievementScale.value }],
+    opacity: achievementScale.value,
+  }));
+
+  const animatedHeaderStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: headerScale.value }],
+  }));
+
+  const animatedMotivationStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: motivationScale.value }],
+    opacity: motivationScale.value,
   }));
 
   if (wordLists.length === 0) {
@@ -180,15 +338,40 @@ export default function StudentPracticeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient
-        colors={['#3B82F6', '#1E40AF']}
-        style={styles.header}
-      >
-        <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Pronunciation Practice</Text>
-          <Text style={styles.headerSubtitle}>{currentWordList?.name}</Text>
-        </View>
-      </LinearGradient>
+      <Animated.View style={animatedHeaderStyle}>
+        <LinearGradient
+          colors={['#3B82F6', '#1E40AF']}
+          style={styles.header}
+        >
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>Pronunciation Practice</Text>
+            <Text style={styles.headerSubtitle}>{currentWordList?.name}</Text>
+            
+            {/* Daily Stats */}
+            <View style={styles.dailyStatsContainer}>
+              <View style={styles.statItem}>
+                <Trophy size={16} color="#FDE68A" />
+                <Text style={styles.statText}>{dailyStats.wordsCompleted} today</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Zap size={16} color="#FDE68A" />
+                <Text style={styles.statText}>{dailyStats.streak} streak</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Target size={16} color="#FDE68A" />
+                <Text style={styles.statText}>{dailyStats.averageAccuracy}% avg</Text>
+              </View>
+            </View>
+          </View>
+        </LinearGradient>
+      </Animated.View>
+
+      {/* Motivational Message */}
+      {motivationalMessage && (
+        <Animated.View style={[styles.motivationalContainer, animatedMotivationStyle]}>
+          <Text style={styles.motivationalText}>{motivationalMessage}</Text>
+        </Animated.View>
+      )}
 
       <ProgressBar
         current={progress?.completedWords.length || 0}
@@ -271,15 +454,30 @@ export default function StudentPracticeScreen() {
         </View>
       </ScrollView>
 
+      {/* Success Celebration */}
       {showCelebration && (
-        <Animated.View style={[styles.celebration, celebrationStyle]}>
+        <Animated.View style={[styles.celebration, animatedCelebrationStyle]}>
           <LinearGradient
             colors={['#10B981', '#059669']}
             style={styles.celebrationContent}
           >
             <Trophy size={40} color="#ffffff" />
-            <Text style={styles.celebrationText}>Great Job!</Text>
-            <Text style={styles.celebrationSubtext}>You can move to the next word!</Text>
+            <Text style={styles.celebrationText}>Excellent!</Text>
+            <Text style={styles.celebrationSubtext}>You're mastering pronunciation! 🎉</Text>
+          </LinearGradient>
+        </Animated.View>
+      )}
+
+      {/* Achievement Notification */}
+      {showAchievement && (
+        <Animated.View style={[styles.achievement, animatedAchievementStyle]}>
+          <LinearGradient
+            colors={['#F59E0B', '#D97706']}
+            style={styles.achievementContent}
+          >
+            <Award size={32} color="#ffffff" />
+            <Text style={styles.achievementText}>Word Mastered!</Text>
+            <Text style={styles.achievementSubtext}>+10 XP earned! 🌟</Text>
           </LinearGradient>
         </Animated.View>
       )}
@@ -309,6 +507,41 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter-Regular',
     color: '#E0E7FF',
+    marginBottom: 16,
+  },
+  dailyStatsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  statText: {
+    fontSize: 12,
+    fontFamily: 'Inter-SemiBold',
+    color: '#FDE68A',
+  },
+  motivationalContainer: {
+    marginHorizontal: 20,
+    marginVertical: 10,
+    backgroundColor: '#DCFCE7',
+    borderRadius: 12,
+    padding: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#10B981',
+  },
+  motivationalText: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#059669',
+    textAlign: 'center',
   },
   content: {
     flex: 1,
@@ -463,5 +696,37 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#ffffff',
     textAlign: 'center',
+  },
+  achievement: {
+    position: 'absolute',
+    top: 100,
+    left: 20,
+    right: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  achievementContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+    gap: 12,
+  },
+  achievementText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Bold',
+    color: '#ffffff',
+  },
+  achievementSubtext: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#ffffff',
+    opacity: 0.9,
   },
 });
